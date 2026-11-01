@@ -1,1 +1,8 @@
 secrets.h
+.venv/
+venv/
+__pycache__/
+*.pyc
+dados_esp32_serial.csv
+
+
