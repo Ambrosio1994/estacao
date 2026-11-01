@@ -18,15 +18,16 @@ chart_colours = ['#2E92A2', '#FFB651', '#AA3F5D', '#98A54F', '#D85A44', '#61BEA4
 # Semantic colours: use when colour carries meaning (gain/loss, target, etc.)
 COLOUR_POSITIVE = '#2E92A2'
 COLOUR_NEGATIVE = '#D85A44'
-COLOUR_TOTAL = '#444444'
+COLOUR_TOTAL = '#8C8C8C'      # cinza medio: legivel nos temas claro e escuro
 COLOUR_WARNING = '#FFB651'
 COLOUR_HIGHLIGHT = '#AA3F5D'
 COLOUR_MUTED = '#A0A0A0'      # de-emphasised series, connectors, reference lines
 
-# Text, grid and background
-COLOUR_TEXT = '#222222'
-COLOUR_GRID = 'lightgray'
-COLOUR_BACKGROUND = 'white'
+# Grid, axis and background: neutral/transparent so the Streamlit theme (light or dark)
+# supplies text colour and page background. Text colour is intentionally left unset.
+COLOUR_GRID = 'rgba(128, 128, 128, 0.25)'
+COLOUR_AXIS_LINE = 'rgba(128, 128, 128, 0.6)'
+COLOUR_BACKGROUND = 'rgba(0, 0, 0, 0)'
 FONT_FAMILY = "Helvetica Neue, Helvetica, Arial, sans-serif"
 
 # Continuous colour scales (heatmaps)
@@ -64,33 +65,29 @@ def get_layout(**kwargs):
         colorway=chart_colours,
         autosize=True,
         height=CHART_HEIGHT,
-        font=dict(family=FONT_FAMILY, size=BODY_SIZE, color=COLOUR_TEXT),
+        font=dict(family=FONT_FAMILY, size=BODY_SIZE),
         title=dict(x=0.5, font={"size": TITLE_SIZE}),
         xaxis=dict(
             showgrid=False,
             gridcolor=COLOUR_GRID,
             showline=True,
-            linecolor='black',
+            linecolor=COLOUR_AXIS_LINE,
             automargin=True,
         ),
         yaxis=dict(
             showgrid=True,
             gridcolor=COLOUR_GRID,
             showline=True,
-            linecolor='black',
+            linecolor=COLOUR_AXIS_LINE,
             automargin=True,
         ),
-        legend=dict(x=1, y=1, bgcolor="rgba(255, 255, 255, 0.95)"),
+        legend=dict(x=1, y=1, bgcolor=COLOUR_BACKGROUND),
         margin=dict(l=50, r=50, b=50, t=60, pad=1),
         showlegend=True,
         paper_bgcolor=COLOUR_BACKGROUND,
         plot_bgcolor=COLOUR_BACKGROUND,
         uirevision="estacao_esp32",
-        hoverlabel=dict(
-            font=dict(family=FONT_FAMILY, size=12, color=COLOUR_TEXT),
-            bgcolor="white",
-            bordercolor=COLOUR_TEXT,
-        ),
+        hoverlabel=dict(font=dict(family=FONT_FAMILY, size=12)),
     )
     layout = go.Layout(**defaults)
     layout.update(**kwargs)
@@ -108,6 +105,34 @@ def add_created_at_annotation(fig, *, offset_px=65, bottom_margin_px=100):
         xanchor="right", yanchor="top",
         showarrow=False,
         font=dict(size=12, color=COLOUR_MUTED),
+    )
+
+
+def add_estatisticas_periodo(fig, df, coluna, unidade):
+    """Marca maxima e minima no ponto em que ocorreram e traca a media do periodo."""
+    serie = df[coluna].dropna()
+    if serie.empty:
+        return
+    idx_max, idx_min = serie.idxmax(), serie.idxmin()
+    for idx, rotulo, cor, ay in ((idx_max, "Max", COLOUR_NEGATIVE, -28), (idx_min, "Min", COLOUR_POSITIVE, 28)):
+        fig.add_annotation(
+            x=df.loc[idx, "timestamp"],
+            y=df.loc[idx, coluna],
+            text=f"{rotulo}: {df.loc[idx, coluna]:.1f}{unidade}",
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=ay,
+            font=dict(size=11, color=cor),
+            bgcolor=COLOUR_BACKGROUND,
+        )
+    fig.add_hline(
+        y=serie.mean(),
+        line_dash="dash",
+        line_width=1.4,
+        line_color=COLOUR_TOTAL,
+        annotation_text=f"Media: {serie.mean():.1f}{unidade}",
+        annotation_position="bottom right",
     )
 
 
@@ -142,12 +167,21 @@ def grafico_medidores_atuais(resumo: Dict) -> go.Figure:
                 increasing=dict(color=COLOUR_NEGATIVE),
                 decreasing=dict(color=COLOUR_POSITIVE),
             ),
-            number=dict(suffix=" C", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY, color=COLOUR_TEXT)),
-            title=dict(text=f"Temperatura ({resumo['periodo_atual']})", font=dict(size=14, family=FONT_FAMILY, color=COLOUR_TEXT)),
+            number=dict(suffix=" C", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY)),
+            title=dict(
+                text=f"Temperatura ({resumo['periodo_atual']})",
+                font=dict(size=14, family=FONT_FAMILY),
+            ),
             gauge=dict(
-                axis=dict(range=[10, 38], tickwidth=1, tickcolor=COLOUR_TEXT),
-                bar=dict(color=COLOUR_TEXT, thickness=0.3),
-                bgcolor="white",
+                axis=dict(
+                    range=[10, 38],
+                    tickwidth=1,
+                    tickcolor=COLOUR_AXIS_LINE,
+                ),
+                bar=dict(color=COLOUR_TOTAL, thickness=0.3),
+                bgcolor=COLOUR_BACKGROUND,
+                borderwidth=1,
+                bordercolor=COLOUR_GRID,
                 steps=[
                     dict(range=[10, min_a], color=hex_to_rgba(COLOUR_NEGATIVE, 0.28)),
                     dict(range=[min_a, min_v], color=hex_to_rgba(COLOUR_WARNING, 0.35)),
@@ -177,12 +211,21 @@ def grafico_medidores_atuais(resumo: Dict) -> go.Figure:
                 increasing=dict(color=COLOUR_POSITIVE),
                 decreasing=dict(color=COLOUR_WARNING),
             ),
-            number=dict(suffix=" %", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY, color=COLOUR_TEXT)),
-            title=dict(text="Umidade Relativa (Meta 40-60%)", font=dict(size=14, family=FONT_FAMILY, color=COLOUR_TEXT)),
+            number=dict(suffix=" %", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY)),
+            title=dict(
+                text="Umidade Relativa (Meta 40-60%)",
+                font=dict(size=14, family=FONT_FAMILY),
+            ),
             gauge=dict(
-                axis=dict(range=[0, 100], tickwidth=1, tickcolor=COLOUR_TEXT),
-                bar=dict(color=COLOUR_TEXT, thickness=0.3),
-                bgcolor="white",
+                axis=dict(
+                    range=[0, 100],
+                    tickwidth=1,
+                    tickcolor=COLOUR_AXIS_LINE,
+                ),
+                bar=dict(color=COLOUR_TOTAL, thickness=0.3),
+                bgcolor=COLOUR_BACKGROUND,
+                borderwidth=1,
+                bordercolor=COLOUR_GRID,
                 steps=[
                     dict(range=[0, 40], color=hex_to_rgba(COLOUR_WARNING, 0.35)),
                     dict(range=[40, 60], color=hex_to_rgba(COLOUR_POSITIVE, 0.35)),
@@ -199,12 +242,21 @@ def grafico_medidores_atuais(resumo: Dict) -> go.Figure:
         go.Indicator(
             mode="gauge+number",
             value=resumo["thom_atual"],
-            number=dict(suffix=" C", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY, color=COLOUR_TEXT)),
-            title=dict(text="Indice de Thom (Conforto <21)", font=dict(size=14, family=FONT_FAMILY, color=COLOUR_TEXT)),
+            number=dict(suffix=" C", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY)),
+            title=dict(
+                text="Indice de Thom (Conforto <21)",
+                font=dict(size=14, family=FONT_FAMILY),
+            ),
             gauge=dict(
-                axis=dict(range=[14, 32], tickwidth=1, tickcolor=COLOUR_TEXT),
-                bar=dict(color=COLOUR_TEXT, thickness=0.3),
-                bgcolor="white",
+                axis=dict(
+                    range=[14, 32],
+                    tickwidth=1,
+                    tickcolor=COLOUR_AXIS_LINE,
+                ),
+                bar=dict(color=COLOUR_TOTAL, thickness=0.3),
+                bgcolor=COLOUR_BACKGROUND,
+                borderwidth=1,
+                bordercolor=COLOUR_GRID,
                 steps=[
                     dict(range=[14, 21], color=hex_to_rgba(COLOUR_POSITIVE, 0.35)),
                     dict(range=[21, 24], color=hex_to_rgba(chart_colours[5], 0.35)),
@@ -223,12 +275,21 @@ def grafico_medidores_atuais(resumo: Dict) -> go.Figure:
         go.Indicator(
             mode="gauge+number",
             value=score_global,
-            number=dict(suffix="/100", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY, color=COLOUR_TEXT)),
-            title=dict(text="Score Ambiental Global", font=dict(size=14, family=FONT_FAMILY, color=COLOUR_TEXT)),
+            number=dict(suffix="/100", valueformat=".1f", font=dict(size=26, family=FONT_FAMILY)),
+            title=dict(
+                text="Score Ambiental Global",
+                font=dict(size=14, family=FONT_FAMILY),
+            ),
             gauge=dict(
-                axis=dict(range=[0, 100], tickwidth=1, tickcolor=COLOUR_TEXT),
-                bar=dict(color=COLOUR_TEXT, thickness=0.3),
-                bgcolor="white",
+                axis=dict(
+                    range=[0, 100],
+                    tickwidth=1,
+                    tickcolor=COLOUR_AXIS_LINE,
+                ),
+                bar=dict(color=COLOUR_TOTAL, thickness=0.3),
+                bgcolor=COLOUR_BACKGROUND,
+                borderwidth=1,
+                bordercolor=COLOUR_GRID,
                 steps=[
                     dict(range=[0, 50], color=hex_to_rgba(COLOUR_NEGATIVE, 0.35)),
                     dict(range=[50, 75], color=hex_to_rgba(COLOUR_WARNING, 0.35)),
@@ -242,9 +303,9 @@ def grafico_medidores_atuais(resumo: Dict) -> go.Figure:
 
     fig.update_layout(
         get_layout(
-            title=dict(text="Medidores Instantaneos de Conforto e Qualidade Ambiental"),
-            height=290,
-            margin=dict(l=30, r=30, t=65, b=85),
+            uirevision="gauges_conforto_esp32",
+            height=270,
+            margin=dict(l=30, r=30, t=45, b=85),
             showlegend=False,
         )
     )
@@ -389,54 +450,24 @@ def grafico_evolucao_temperatura(df: pd.DataFrame) -> go.Figure:
                 )
             )
 
-    # Anotacao automatica de Maxima e Minima
-    if len(df) >= 3:
-        idx_max = df["temperatura"].idxmax()
-        idx_min = df["temperatura"].idxmin()
-        fig.add_annotation(
-            x=df.loc[idx_max, "timestamp"],
-            y=df.loc[idx_max, "temperatura"],
-            text=f"Max: {df.loc[idx_max, 'temperatura']:.1f} C",
-            showarrow=True,
-            arrowhead=2,
-            ax=0,
-            ay=-28,
-            font=dict(size=11, color=COLOUR_NEGATIVE),
-            bgcolor="rgba(255,255,255,0.85)",
-        )
-        fig.add_annotation(
-            x=df.loc[idx_min, "timestamp"],
-            y=df.loc[idx_min, "temperatura"],
-            text=f"Min: {df.loc[idx_min, 'temperatura']:.1f} C",
-            showarrow=True,
-            arrowhead=2,
-            ax=0,
-            ay=28,
-            font=dict(size=11, color=COLOUR_POSITIVE),
-            bgcolor="rgba(255,255,255,0.85)",
-        )
+    add_estatisticas_periodo(fig, df, "temperatura", " C")
 
     add_created_at_annotation(fig)
     return fig
 
 
-def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
+def grafico_umidade(df: pd.DataFrame) -> go.Figure:
     df = df.sort_values("timestamp")
 
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.12,
-        subplot_titles=("Umidade Relativa do Ar (%) e Media Movel", "Luminosidade Ambiente (%) e Limite Dia/Noite"),
-    )
-    fig.update_layout(
-        get_layout(
-            title=dict(text="Monitoramento de Umidade Relativa e Luminosidade (LDR)"),
+    fig = go.Figure(
+        layout=get_layout(
+            title=dict(text="Umidade Relativa do Ar (%) e Media Movel"),
+            xaxis_title="Data e Hora",
+            yaxis_title="Umidade (%)",
             hovermode="x unified",
-            height=540,
-            legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="right", x=1),
-            margin=dict(t=90),
+            height=420,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(t=85),
         )
     )
 
@@ -447,8 +478,6 @@ def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
         line_width=0,
         annotation_text="Faixa Ideal Umidade (40-60%)",
         annotation_position="top left",
-        row=1,
-        col=1,
     )
 
     fig.add_trace(
@@ -459,9 +488,7 @@ def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
             name="Umidade Relativa (%)",
             line=dict(color=chart_colours[0], width=2.2),
             hovertemplate="<b>Umidade Relativa</b><br>Valor: %{y:.1f}%<extra></extra>",
-        ),
-        row=1,
-        col=1,
+        )
     )
 
     fig.add_trace(
@@ -472,9 +499,28 @@ def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
             name="Media Movel Umidade",
             line=dict(color=COLOUR_TOTAL, width=1.6, dash="dot"),
             hovertemplate="<b>Media Movel</b><br>Valor: %{y:.1f}%<extra></extra>",
-        ),
-        row=1,
-        col=1,
+        )
+    )
+
+    add_estatisticas_periodo(fig, df, "umidade", "%")
+    fig.update_yaxes(range=[0, 105])
+    add_created_at_annotation(fig)
+    return fig
+
+
+def grafico_luminosidade(df: pd.DataFrame) -> go.Figure:
+    df = df.sort_values("timestamp")
+
+    fig = go.Figure(
+        layout=get_layout(
+            title=dict(text="Luminosidade Ambiente (LDR, %) e Limite Dia/Noite"),
+            xaxis_title="Data e Hora",
+            yaxis_title="Luz (%)",
+            hovermode="x unified",
+            height=420,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(t=85),
+        )
     )
 
     fig.add_trace(
@@ -487,9 +533,7 @@ def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
             line=dict(color=chart_colours[3], width=2.0),
             fillcolor=hex_to_rgba(chart_colours[1], 0.28),
             hovertemplate="<b>Luminosidade</b><br>Valor: %{y:.1f}%<extra></extra>",
-        ),
-        row=2,
-        col=1,
+        )
     )
 
     fig.add_hline(
@@ -498,33 +542,10 @@ def grafico_umidade_luminosidade(df: pd.DataFrame) -> go.Figure:
         line_color=COLOUR_HIGHLIGHT,
         annotation_text="Limiar Dia/Noite (40%)",
         annotation_position="top left",
-        row=2,
-        col=1,
     )
 
-    fig.update_yaxes(
-        title_text="Umidade (%)",
-        range=[0, 105],
-        showgrid=True,
-        gridcolor=COLOUR_GRID,
-        showline=True,
-        linecolor="black",
-        row=1,
-        col=1,
-    )
-    fig.update_yaxes(
-        title_text="Luz (%)",
-        range=[0, 105],
-        showgrid=True,
-        gridcolor=COLOUR_GRID,
-        showline=True,
-        linecolor="black",
-        row=2,
-        col=1,
-    )
-    fig.update_xaxes(showgrid=False, showline=True, linecolor="black", row=1, col=1)
-    fig.update_xaxes(title_text="Data e Hora", showgrid=False, showline=True, linecolor="black", row=2, col=1)
-
+    add_estatisticas_periodo(fig, df, "luminosidade", "%")
+    fig.update_yaxes(range=[0, 105])
     add_created_at_annotation(fig)
     return fig
 
@@ -719,14 +740,14 @@ def grafico_indicadores_derivados(df: pd.DataFrame) -> go.Figure:
         showgrid=True,
         gridcolor=COLOUR_GRID,
         showline=True,
-        linecolor="black",
+        linecolor=COLOUR_AXIS_LINE,
         secondary_y=False,
     )
     fig.update_yaxes(
         title_text="Umid. Absoluta (g/m3) / Spread (C)",
         showgrid=False,
         showline=True,
-        linecolor="black",
+        linecolor=COLOUR_AXIS_LINE,
         secondary_y=True,
     )
     add_created_at_annotation(fig)

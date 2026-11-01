@@ -340,7 +340,7 @@ class ColetorSerialESP32:
             fatia = list(self.registros[-max_registros:])
             info = {
                 "id": self.porta,
-                "name": f"ESP32 em Tempo Real ({self.porta})",
+                "name": "ESP32 em Tempo Real",
                 "conectado": self.conectado,
                 "ultimo_erro": self.ultimo_erro,
                 "ultima_linha": self.ultima_linha,

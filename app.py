@@ -13,7 +13,8 @@ from graficos import (
     grafico_medidores_atuais,
     grafico_radar_scorecard,
     grafico_semaforo_distribuicao,
-    grafico_umidade_luminosidade,
+    grafico_luminosidade,
+    grafico_umidade,
 )
 from indicadores import (
     adicionar_indicadores_meteorologicos,
@@ -23,23 +24,40 @@ from indicadores import (
 )
 
 
-def renderizar_painel(max_reg_serial: int) -> None:
+def renderizar_painel(
+    max_reg_serial: int,
+    slot_kpis,
+    slot_gauges,
+    slot_evolucao,
+    slot_indicadores,
+    slot_previsao,
+    slot_exploracao,
+) -> None:
+    c_kpis = slot_kpis.container()
+    c_evolucao = slot_evolucao.container()
+    c_indicadores = slot_indicadores.container()
+    c_previsao = slot_previsao.container()
+    c_exploracao = slot_exploracao.container()
+
     porta_padrao = listar_portas_seriais()[0]
     coletor = obter_coletor_serial(porta=porta_padrao, baudrate=115200)
     coletor.iniciar(porta=porta_padrao, baudrate=115200)
     df_bruto, info_canal = coletor.obter_dados(max_registros=max_reg_serial)
 
     if info_canal.get("ultimo_erro") and df_bruto.empty:
-        st.error(info_canal["ultimo_erro"])
+        slot_gauges.empty()
+        c_kpis.error(info_canal["ultimo_erro"])
         return
 
     if df_bruto.empty:
-        st.info("Aguardando a proxima leitura em tempo real do ESP32 pela porta serial...")
+        slot_gauges.empty()
+        c_kpis.info("Aguardando a proxima leitura em tempo real do ESP32 pela porta serial...")
         return
 
     df_prep, stats_limpeza = preparar_dados(df_bruto, fuso_horario="America/Sao_Paulo")
     if df_prep.empty:
-        st.warning("Nao restaram registros validos apos a etapa de limpeza e preparacao dos dados.")
+        slot_gauges.empty()
+        c_kpis.warning("Nao restaram registros validos apos a etapa de limpeza e preparacao dos dados.")
         return
 
     df_filtrado = adicionar_indicadores_meteorologicos(df_prep, janela_movel=10)
@@ -49,80 +67,71 @@ def renderizar_painel(max_reg_serial: int) -> None:
     # --------------------------------------------------------------------------
     # Painel de Metricas Principais (KPIs Instantaneos + Diagnostico)
     # --------------------------------------------------------------------------
-    nome_canal = info_canal.get("name", "ESP32 em Tempo Real")
-    st.subheader(f"Resumo Atual - {nome_canal}")
-    st.markdown(
-        f"**Ultima medicao:** `{resumo['ultima_leitura'].strftime('%d/%m/%Y %H:%M:%S')}` "
-        f"| **Periodo:** `{resumo['periodo_atual']}` "
-        f"| **Semaforo:** `{resumo['status_atual']}` (`{resumo['motivo_atual']}`) "
-        f"| **Score Ambiental:** `{resumo['scorecard'].get('Indice Global (0-100)', 0.0):.1f}/100` "
-        f"| **Amostras:** `{len(df_filtrado)}`"
-    )
+    with c_kpis:
+        nome_canal = info_canal.get("name", "ESP32 em Tempo Real")
+        st.subheader(f"Resumo Atual - {nome_canal}")
+        st.markdown(
+            f"**Ultima medicao:** `{resumo['ultima_leitura'].strftime('%d/%m/%Y %H:%M:%S')}` "
+            f"| **Periodo:** `{resumo['periodo_atual']}` "
+            f"| **Semaforo:** `{resumo['status_atual']}` (`{resumo['motivo_atual']}`) "
+            f"| **Score Ambiental:** `{resumo['scorecard'].get('Indice Global (0-100)', 0.0):.1f}/100` "
+            f"| **Amostras:** `{len(df_filtrado)}`"
+        )
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric(
-        "Temperatura Atual",
-        f"{resumo['temp_atual']:.1f} C",
-        f"{resumo['temp_delta']:+.1f} C",
-    )
-    col2.metric(
-        "Umidade Relativa",
-        f"{resumo['umid_atual']:.1f} %",
-        f"{resumo['umid_delta']:+.1f} %",
-    )
-    col3.metric(
-        "Luminosidade (LDR)",
-        f"{resumo['luz_atual']:.1f} %",
-        f"{resumo['luz_delta']:+.1f} % ({resumo['periodo_atual']})",
-    )
-    prog_prev = info_canal.get("progresso_previsao", "")
-    col4.metric(
-        "Previsao +10 min (ESP32)",
-        (
-            f"{resumo['prev_10min_atual']:.1f} C"
-            if pd.notna(resumo["prev_10min_atual"])
-            else f"Coletando ({prog_prev})..." if prog_prev else "Coletando..."
-        ),
-        (
-            f"{resumo['prev_10min_atual'] - resumo['temp_atual']:+.1f} C vs atual"
-            if pd.notna(resumo["prev_10min_atual"])
-            else None
-        ),
-    )
-    col5.metric(
-        "Bulbo Umido / Orvalho",
-        f"{resumo['bulbo_umido_atual']:.1f} C",
-        f"Orvalho: {resumo['orvalho_atual']:.1f} C (Spread {resumo['spread_orvalho_atual']:.1f} C)",
-        delta_color="off",
-    )
-    col6.metric(
-        "VPD / Entalpia do Ar",
-        f"{resumo['vpd_atual']:.2f} kPa",
-        f"{resumo['entalpia_atual']:.1f} kJ/kg | {resumo['umid_abs_atual']:.1f} g/m3",
-        delta_color="off",
-    )
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        col1.metric(
+            "Temperatura Atual",
+            f"{resumo['temp_atual']:.1f} C",
+            f"{resumo['temp_delta']:+.1f} C",
+        )
+        col2.metric(
+            "Umidade Relativa",
+            f"{resumo['umid_atual']:.1f} %",
+            f"{resumo['umid_delta']:+.1f} %",
+        )
+        col3.metric(
+            "Luminosidade (LDR)",
+            f"{resumo['luz_atual']:.1f} %",
+            f"{resumo['luz_delta']:+.1f} % ({resumo['periodo_atual']})",
+        )
+        prog_prev = info_canal.get("progresso_previsao", "")
+        col4.metric(
+            "Previsao +10 min (ESP32)",
+            (
+                f"{resumo['prev_10min_atual']:.1f} C"
+                if pd.notna(resumo["prev_10min_atual"])
+                else f"Coletando ({prog_prev})..." if prog_prev else "Coletando..."
+            ),
+            (
+                f"{resumo['prev_10min_atual'] - resumo['temp_atual']:+.1f} C vs atual"
+                if pd.notna(resumo["prev_10min_atual"])
+                else None
+            ),
+        )
+        col5.metric(
+            "Bulbo Umido / Orvalho",
+            f"{resumo['bulbo_umido_atual']:.1f} C",
+            f"Orvalho: {resumo['orvalho_atual']:.1f} C (Spread {resumo['spread_orvalho_atual']:.1f} C)",
+            delta_color="off",
+        )
+        col6.metric(
+            "VPD / Entalpia do Ar",
+            f"{resumo['vpd_atual']:.2f} kPa",
+            f"{resumo['entalpia_atual']:.1f} kJ/kg | {resumo['umid_abs_atual']:.1f} g/m3",
+            delta_color="off",
+        )
 
-    with st.expander("Visualizar Medidores Instantaneos (Gauges de Conforto e Qualidade)", expanded=True):
-        st.plotly_chart(grafico_medidores_atuais(resumo), use_container_width=True, key="fig_gauges")
-
-    st.divider()
-
-    # --------------------------------------------------------------------------
-    # Abas do Dashboard
-    # --------------------------------------------------------------------------
-    aba_evolucao, aba_indicadores, aba_previsao, aba_exploracao = st.tabs(
-        [
-            "1. Evolucao e Diagnostico do Semaforo",
-            "2. Indicadores Meteorologicos e Bioclimaticos",
-            "3. Desempenho da Previsao (ESP32)",
-            "4. Qualidade de Dados e Telemetria IoT",
-        ]
+    slot_gauges.plotly_chart(
+        grafico_medidores_atuais(resumo),
+        use_container_width=True,
+        key="fig_gauges",
     )
 
     # === ABA 1: EVOLUCAO DAS MEDICOES E SEMAFORO ===
-    with aba_evolucao:
+    with c_evolucao:
         st.plotly_chart(grafico_evolucao_temperatura(df_filtrado), use_container_width=True, key="fig_temp")
-        st.plotly_chart(grafico_umidade_luminosidade(df_filtrado), use_container_width=True, key="fig_umid_luz")
+        st.plotly_chart(grafico_umidade(df_filtrado), use_container_width=True, key="fig_umid")
+        st.plotly_chart(grafico_luminosidade(df_filtrado), use_container_width=True, key="fig_luz")
 
         fig_pizza, fig_linha_semaforo = grafico_semaforo_distribuicao(df_filtrado)
         col_g1, col_g2 = st.columns([1, 2])
@@ -134,7 +143,7 @@ def renderizar_painel(max_reg_serial: int) -> None:
         st.plotly_chart(grafico_diagnostico_alertas(df_filtrado), use_container_width=True, key="fig_alertas")
 
     # === ABA 2: INDICADORES METEOROLOGICOS E BIOCLIMATICOS ===
-    with aba_indicadores:
+    with c_indicadores:
         st.subheader("Indicadores Meteorologicos e Bioclimaticos Agregados no Periodo")
         c_ind1, c_ind2, c_ind3, c_ind4 = st.columns(4)
         c_ind1.metric(
@@ -201,7 +210,7 @@ def renderizar_painel(max_reg_serial: int) -> None:
         st.dataframe(resumo_periodo, use_container_width=True)
 
     # === ABA 3: DESEMPENHO DA PREVISAO (ESP32) ===
-    with aba_previsao:
+    with c_previsao:
         st.subheader("Avaliacao da Regressao Linear Embarcada (Previsao de 10 Minutos)")
         st.markdown(
             "O ESP32 mantem uma janela deslizante de 20 leituras (`N_JANELA = 20`, a cada 30 s) e projeta "
@@ -233,7 +242,7 @@ def renderizar_painel(max_reg_serial: int) -> None:
                 st.plotly_chart(fig_paridade, use_container_width=True, key="fig_prev_par")
 
     # === ABA 4: EXPLORACAO, QUALIDADE DE DADOS E TELEMETRIA IOT ===
-    with aba_exploracao:
+    with c_exploracao:
         st.subheader("Pipeline de Limpeza, Qualidade dos Dados e Telemetria IoT")
         q1, q2, q3, q4, q5, q6 = st.columns(6)
         q1.metric("Registros Brutos", stats_limpeza["linhas_brutas"])
@@ -295,13 +304,17 @@ def main():
     )
 
     st.title("Estacao de Monitoramento Ambiental - ESP32")
-    st.caption(
-        "Aplicacao em Python, Pandas, Plotly e Streamlit para coleta em tempo real, "
-        "calculo de indicadores meteorologicos/bioclimaticos e visualizacao das medicoes do ESP32."
-    )
 
     with st.sidebar:
-        atualizar_tempo_real = st.toggle("Atualizacao automatica em tempo real (2s)", value=True)
+        atualizar_tempo_real = st.toggle("Atualizacao automatica em tempo real", value=True)
+        intervalo_atualizacao = st.slider(
+            "Intervalo de atualizacao (s):",
+            min_value=2,
+            max_value=20,
+            value=2,
+            step=1,
+            disabled=not atualizar_tempo_real,
+        )
         max_reg_serial = st.slider(
             "Janela de leituras exibidas:",
             min_value=20,
@@ -310,8 +323,41 @@ def main():
             step=20,
         )
 
-    painel_fragment = st.fragment(run_every=2.0 if atualizar_tempo_real else None)(renderizar_painel)
-    painel_fragment(max_reg_serial)
+    slot_kpis = st.empty()
+    with st.expander("Visualizar Medidores Instantaneos (Gauges de Conforto e Qualidade)", expanded=True):
+        slot_gauges = st.empty()
+
+    st.divider()
+
+    aba_evolucao, aba_indicadores, aba_previsao, aba_exploracao = st.tabs(
+        [
+            "1. Evolucao e Diagnostico do Semaforo",
+            "2. Indicadores Meteorologicos e Bioclimaticos",
+            "3. Desempenho da Previsao (ESP32)",
+            "4. Qualidade de Dados e Telemetria IoT",
+        ]
+    )
+    with aba_evolucao:
+        slot_evolucao = st.empty()
+    with aba_indicadores:
+        slot_indicadores = st.empty()
+    with aba_previsao:
+        slot_previsao = st.empty()
+    with aba_exploracao:
+        slot_exploracao = st.empty()
+
+    painel_fragment = st.fragment(run_every=float(intervalo_atualizacao) if atualizar_tempo_real else None)(
+        renderizar_painel
+    )
+    painel_fragment(
+        max_reg_serial,
+        slot_kpis,
+        slot_gauges,
+        slot_evolucao,
+        slot_indicadores,
+        slot_previsao,
+        slot_exploracao,
+    )
 
 
 if __name__ == "__main__":
