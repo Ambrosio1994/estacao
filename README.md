@@ -142,3 +142,28 @@ source .venv/bin/activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+## Passo a Passo para Apresentacao (Sala de Aula)
+
+1. **Conectar a internet (Wi-Fi):**
+   - Ligue o roteador do celular com o mesmo SSID e senha configurados em `secrets.h` e conecte o notebook nele.
+   - *(So precisa editar `secrets.h` e rodar `arduino-cli compile && arduino-cli upload` se for usar outro Wi-Fi ou trocar o nome do grupo em `MQTT_TOPIC`.)*
+
+2. **Ligar o ESP32:**
+   - Conecte o ESP32 na energia (USB do notebook, carregador ou powerbank).
+   - Se estiver no USB do notebook, ele tambem serve de plano B automatico caso o Wi-Fi da placa falhe.
+
+3. **Iniciar o Dashboard Web em Tempo Real:**
+   No terminal, dentro da pasta do projeto:
+   ```bash
+   .venv/bin/python servidor_tempo_real.py
+   ```
+   Abra no navegador: **http://localhost:8000**  
+   *(Opcional — painel analitico completo em Streamlit: `.venv/bin/streamlit run app.py`)*
+
+4. **Confirmar a conexao MQTT no topo da tela:**
+   - Verifique se o indicador esta **verde** (`MQTT Ativo (broker.hivemq.com:1883)` ou `MQTT + Serial`) e se o topico exibido e o do grupo (`prof_thiago/unip/pd2/...`).
+
+5. **Demonstracao ao vivo:**
+   - **Luminosidade (LDR):** cubra o sensor com a mao ou ilumine com a lanterna do celular (atualiza a cada ~6 s).
+   - **Temperatura / Umidade (DHT22):** aproxime a mao ou sopre levemente no sensor para variar os graficos e o semaforo de LEDs em tempo real (~2 s).
