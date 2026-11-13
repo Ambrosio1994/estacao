@@ -156,6 +156,7 @@ streamlit run app.py
 3. **Iniciar o Dashboard Web em Tempo Real:**
    No terminal, dentro da pasta do projeto:
    ```bash
+   arduino-cli compile && arduino-cli upload 
    .venv/bin/python servidor_tempo_real.py
    ```
    Abra no navegador: **http://localhost:8000**  
