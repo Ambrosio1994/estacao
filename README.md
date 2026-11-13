@@ -74,6 +74,10 @@ Crie um arquivo chamado `secrets.h` na raiz do projeto (este arquivo e ignorado 
 #define WIFI_SENHA "SUA_WIFI_SENHA"
 #define TS_CHAVE "SUA_WRITE_API_KEY_THINGSPEAK"
 
+#define MQTT_BROKER "broker.hivemq.com"
+#define MQTT_PORT   1883
+#define MQTT_TOPIC  "prof_thiago/unip/pd2/NOME_DO_GRUPO/dados"
+
 #endif
 ```
 

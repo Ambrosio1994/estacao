@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from coleta import listar_portas_seriais, obter_coletor_serial
+from coleta import MQTT_BROKER, MQTT_PORT, MQTT_TOPIC, listar_portas_seriais, obter_coletor_serial
 from graficos import (
     grafico_avaliacao_previsao,
     grafico_diagnostico_alertas,
@@ -44,14 +44,11 @@ def renderizar_painel(
     coletor.iniciar(porta=porta_padrao, baudrate=115200)
     df_bruto, info_canal = coletor.obter_dados(max_registros=max_reg_serial)
 
-    if info_canal.get("ultimo_erro") and df_bruto.empty:
-        slot_gauges.empty()
-        c_kpis.error(info_canal["ultimo_erro"])
-        return
-
     if df_bruto.empty:
         slot_gauges.empty()
-        c_kpis.info("Aguardando a proxima leitura em tempo real do ESP32 pela porta serial...")
+        c_kpis.info(
+            f"Aguardando leitura em tempo real do ESP32 via MQTT (`{info_canal.get('mqtt_broker')}:{info_canal.get('mqtt_port')}` - topico `{info_canal.get('mqtt_topico')}`) ou porta serial..."
+        )
         return
 
     df_prep, stats_limpeza = preparar_dados(df_bruto, fuso_horario="America/Sao_Paulo")
@@ -69,9 +66,11 @@ def renderizar_painel(
     # --------------------------------------------------------------------------
     with c_kpis:
         nome_canal = info_canal.get("name", "ESP32 em Tempo Real")
+        status_mqtt = "Ativo" if info_canal.get("mqtt_conectado") else "Reconectando"
         st.subheader(f"Resumo Atual - {nome_canal}")
         st.markdown(
             f"**Ultima medicao:** `{resumo['ultima_leitura'].strftime('%d/%m/%Y %H:%M:%S')}` "
+            f"| **MQTT ({info_canal.get('mqtt_broker')}:{info_canal.get('mqtt_port')}):** `{status_mqtt}` "
             f"| **Periodo:** `{resumo['periodo_atual']}` "
             f"| **Semaforo:** `{resumo['status_atual']}` (`{resumo['motivo_atual']}`) "
             f"| **Score Ambiental:** `{resumo['scorecard'].get('Indice Global (0-100)', 0.0):.1f}/100` "
@@ -306,6 +305,12 @@ def main():
     st.title("Estacao de Monitoramento Ambiental - ESP32")
 
     with st.sidebar:
+        st.markdown("### Servidor / Broker MQTT")
+        st.code(
+            f'MQTT_BROKER = "{MQTT_BROKER}"\nMQTT_PORT = {MQTT_PORT}\nMQTT_TOPIC = "{MQTT_TOPIC}"',
+            language="python",
+        )
+        st.divider()
         atualizar_tempo_real = st.toggle("Atualizacao automatica em tempo real", value=True)
         intervalo_atualizacao = st.slider(
             "Intervalo de atualizacao (s):",

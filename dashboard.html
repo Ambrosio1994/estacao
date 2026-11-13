@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estação Meteorológica ESP32 — Tempo Real</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --pill-bg: rgba(15, 23, 42, 0.65);
+      --badge-bg: rgba(255, 255, 255, 0.06);
+      --border: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --teal: #2E92A2;
+      --amber: #FFB651;
+      --rose: #AA3F5D;
+      --coral: #D85A44;
+      --green: #22c55e;
+      --mean: #cbd5e1;
+      --min-txt: #7dd3fc;
+      --max-txt: #fca5a5;
+      --prev-txt: #f9a8d4;
+    }
+    body.light-theme {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --pill-bg: #f1f5f9;
+      --badge-bg: #f1f5f9;
+      --border: #cbd5e1;
+      --text: #0f172a;
+      --muted: #475569;
+      --mean: #475569;
+      --min-txt: #0369a1;
+      --max-txt: #b91c1c;
+      --prev-txt: #9d174d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px 22px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .title-group h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .title-group p {
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: var(--badge-bg);
+      border: 1px solid var(--border);
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+    .dot.warn { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+    .dot.danger { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+    select {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 0.85rem;
+    }
+    .theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .theme-toggle input { display: none; }
+    .switch-track {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: var(--border);
+      border-radius: 999px;
+      transition: background 0.2s;
+    }
+    .switch-thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: var(--text);
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .theme-toggle input:checked + .switch-track {
+      background: var(--teal);
+    }
+    .theme-toggle input:checked + .switch-track .switch-thumb {
+      transform: translateX(20px);
+      background: #ffffff;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+    .stats {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 0.8rem;
+    }
+    .stat-pill {
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--pill-bg);
+      border: 1px solid var(--border);
+    }
+    .stat-pill strong { font-weight: 700; }
+    .stat-atual { border-color: var(--teal); }
+    .stat-min { border-color: #38bdf8; color: var(--min-txt); }
+    .stat-max { border-color: var(--coral); color: var(--max-txt); }
+    .stat-media { border-color: var(--mean); color: var(--mean); }
+    .stat-prev { border-color: var(--rose); color: var(--prev-txt); }
+    .chart-box {
+      position: relative;
+      height: 285px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title-group">
+      <h1>Estação de Monitoramento Ambiental ESP32</h1>
+      <p id="substatus">Conectando ao stream em tempo real (SSE)...</p>
+    </div>
+    <div class="controls">
+      <span class="badge">
+        <span id="status-dot" class="dot warn"></span>
+        <span id="status-text">Sincronizando...</span>
+      </span>
+      <span class="badge" id="periodo-badge">Período: --</span>
+      <span class="badge">
+        <span id="semaforo-dot" class="dot"></span>
+        <span id="semaforo-badge">Semáforo: --</span>
+      </span>
+      <span class="badge" id="delay-badge" title="Tempo entre a chegada do dado no servidor e a renderização nos 4 gráficos">Delay: -- ms</span>
+      <label>
+        Janela do período:
+        <select id="janela-select">
+          <option value="60">Últimas 60 leituras</option>
+          <option value="120" selected>Últimas 120 leituras</option>
+          <option value="300">Últimas 300 leituras</option>
+          <option value="600">Últimas 600 leituras</option>
+        </select>
+      </label>
+      <label class="theme-toggle" title="Alternar tema Claro / Escuro">
+        <input type="checkbox" id="theme-checkbox" />
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span id="theme-label">Escuro</span>
+      </label>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- 1. UMIDADE -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-title">1. Umidade Relativa (%)</div>
+        <div class="stats">
+          <span class="stat-pill stat-atual">Atual: <strong id="umid-atual">--</strong></span>
+          <span class="stat-pill stat-media">Média: <strong id="umid-media">--</strong></span>
+          <span class="stat-pill stat-min">Mín: <strong id="umid-min">--</strong></span>
+          <span class="stat-pill stat-max">Máx: <strong id="umid-max">--</strong></span>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart-umidade"></canvas></div>
+    </section>
+
+    <!-- 2. TEMPERATURA -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-title">2. Temperatura (°C)</div>
+        <div class="stats">
+          <span class="stat-pill stat-atual">Atual: <strong id="temp-atual">--</strong></span>
+          <span class="stat-pill stat-media">Média: <strong id="temp-media">--</strong></span>
+          <span class="stat-pill stat-min">Mín: <strong id="temp-min">--</strong></span>
+          <span class="stat-pill stat-max">Máx: <strong id="temp-max">--</strong></span>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart-temperatura"></canvas></div>
+    </section>
+
+    <!-- 3. LUMINOSIDADE -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-title">3. Luminosidade (%)</div>
+        <div class="stats">
+          <span class="stat-pill stat-atual">Atual: <strong id="luz-atual">--</strong></span>
+          <span class="stat-pill stat-media">Média: <strong id="luz-media">--</strong></span>
+          <span class="stat-pill stat-min">Mín: <strong id="luz-min">--</strong></span>
+          <span class="stat-pill stat-max">Máx: <strong id="luz-max">--</strong></span>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart-luminosidade"></canvas></div>
+    </section>
+
+    <!-- 4. PREVISÃO REGRESSÃO VS TEMPERATURA REAL -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-title">4. Previsão vs. Temperatura Real (°C)</div>
+        <div class="stats">
+          <span class="stat-pill stat-atual">Real: <strong id="prev-real">--</strong></span>
+          <span class="stat-pill stat-prev">Prevista: <strong id="prev-val">--</strong></span>
+          <span class="stat-pill stat-media">Diferença: <strong id="prev-diff">--</strong></span>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="chart-previsao"></canvas></div>
+    </section>
+  </main>
+
+  <script>
+    const MAPA_SEMAFORO = { 0: "Ideal (Verde)", 1: "Atenção (Amarelo)", 2: "Crítico (Vermelho)" };
+    let maxJanela = Number(document.getElementById("janela-select").value);
+    let historico = [];
+    let ultimoStatus = null;
+
+    function formatarHora(isoStr) {
+      if (!isoStr) return "";
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr;
+      return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function criarGraficoPadrao(canvasId, nomeSerie, unidade, corLinha, corFundo) {
+      const ctx = document.getElementById(canvasId).getContext("2d");
+      return new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: `${nomeSerie} (${unidade})`,
+              data: [],
+              borderColor: corLinha,
+              backgroundColor: corFundo,
+              borderWidth: 2.2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              tension: 0.45,
+              cubicInterpolationMode: "monotone",
+              fill: true,
+              order: 3
+            },
+            {
+              label: `Média do Período`,
+              data: [],
+              borderColor: "#cbd5e1",
+              borderWidth: 1.6,
+              borderDash: [6, 5],
+              pointRadius: 0,
+              pointHoverRadius: 0,
+              fill: false,
+              order: 2
+            },
+            {
+              label: `Mínima do Período`,
+              data: [],
+              borderColor: "#38bdf8",
+              backgroundColor: "#0284c7",
+              pointBorderColor: "#ffffff",
+              pointBorderWidth: 2,
+              pointRadius: 7,
+              pointHoverRadius: 9,
+              showLine: false,
+              order: 1
+            },
+            {
+              label: `Máxima do Período`,
+              data: [],
+              borderColor: "#D85A44",
+              backgroundColor: "#ef4444",
+              pointBorderColor: "#ffffff",
+              pointBorderWidth: 2,
+              pointRadius: 7,
+              pointHoverRadius: 9,
+              showLine: false,
+              order: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: "#cbd5e1", boxWidth: 14, font: { size: 11 } }
+            },
+            tooltip: {
+              filter: (item) => item.raw !== null
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: "#94a3b8", maxTicksLimit: 8 },
+              grid: { color: "rgba(148, 163, 184, 0.1)" }
+            },
+            y: {
+              ticks: { color: "#94a3b8" },
+              grid: { color: "rgba(148, 163, 184, 0.15)" }
+            }
+          }
+        }
+      });
+    }
+
+    function criarGraficoPrevisao(canvasId) {
+      const ctx = document.getElementById(canvasId).getContext("2d");
+      return new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Temperatura Real (°C)",
+              data: [],
+              borderColor: "#2E92A2",
+              backgroundColor: "rgba(46, 146, 162, 0.12)",
+              borderWidth: 2.2,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              tension: 0.45,
+              cubicInterpolationMode: "monotone",
+              fill: true
+            },
+            {
+              label: "Previsão Regressão Linear (°C)",
+              data: [],
+              borderColor: "#f472b6",
+              backgroundColor: "transparent",
+              borderWidth: 2.2,
+              borderDash: [5, 4],
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              tension: 0.45,
+              cubicInterpolationMode: "monotone",
+              spanGaps: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: "#cbd5e1", boxWidth: 14, font: { size: 11 } }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: "#94a3b8", maxTicksLimit: 8 },
+              grid: { color: "rgba(148, 163, 184, 0.1)" }
+            },
+            y: {
+              ticks: { color: "#94a3b8" },
+              grid: { color: "rgba(148, 163, 184, 0.15)" }
+            }
+          }
+        }
+      });
+    }
+
+    const chartUmidade = criarGraficoPadrao(
+      "chart-umidade", "Umidade", "%", "#2E92A2", "rgba(46, 146, 162, 0.15)"
+    );
+    const chartTemperatura = criarGraficoPadrao(
+      "chart-temperatura", "Temperatura", "°C", "#D85A44", "rgba(216, 90, 68, 0.15)"
+    );
+    const chartLuminosidade = criarGraficoPadrao(
+      "chart-luminosidade", "Luminosidade", "%", "#FFB651", "rgba(255, 182, 81, 0.15)"
+    );
+    const chartPrevisao = criarGraficoPrevisao("chart-previsao");
+
+    function suavizarSerie(valores, raio = 4) {
+      const n = valores.length;
+      const saida = new Array(n);
+      for (let i = 0; i < n; i++) {
+        if (valores[i] === null || valores[i] === undefined) {
+          saida[i] = null;
+          continue;
+        }
+        let somaPesos = 0;
+        let somaVal = 0;
+        for (let j = -raio; j <= raio; j++) {
+          const idx = i + j;
+          if (idx >= 0 && idx < n && valores[idx] !== null && valores[idx] !== undefined) {
+            const peso = raio + 1 - Math.abs(j);
+            somaVal += valores[idx] * peso;
+            somaPesos += peso;
+          }
+        }
+        saida[i] = Number((somaVal / somaPesos).toFixed(2));
+      }
+      return saida;
+    }
+
+    function atualizarSerieComEstatisticas(chart, labels, valores, prefixoDom, unidade) {
+      const n = valores.length;
+      if (n === 0) return;
+
+      let soma = 0;
+      let minVal = Infinity, maxVal = -Infinity;
+      let minIdx = 0, maxIdx = 0;
+
+      for (let i = 0; i < n; i++) {
+        const v = valores[i];
+        soma += v;
+        if (v < minVal) { minVal = v; minIdx = i; }
+        if (v > maxVal) { maxVal = v; maxIdx = i; }
+      }
+
+      const serieSuave = suavizarSerie(valores, 4);
+      serieSuave[minIdx] = minVal;
+      serieSuave[maxIdx] = maxVal;
+
+      const media = Number((soma / n).toFixed(2));
+      const linhaMedia = new Array(n).fill(media);
+      const pontoMin = new Array(n).fill(null);
+      const pontoMax = new Array(n).fill(null);
+      pontoMin[minIdx] = minVal;
+      pontoMax[maxIdx] = maxVal;
+
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = serieSuave;
+      chart.data.datasets[1].data = linhaMedia;
+      chart.data.datasets[2].data = pontoMin;
+      chart.data.datasets[3].data = pontoMax;
+      chart.update("none");
+
+      const atual = valores[n - 1];
+      document.getElementById(`${prefixoDom}-atual`).textContent = `${atual.toFixed(1)} ${unidade}`;
+      document.getElementById(`${prefixoDom}-media`).textContent = `${media.toFixed(1)} ${unidade}`;
+      document.getElementById(`${prefixoDom}-min`).textContent = `${minVal.toFixed(1)} ${unidade}`;
+      document.getElementById(`${prefixoDom}-max`).textContent = `${maxVal.toFixed(1)} ${unidade}`;
+    }
+
+    function renderizarJanela() {
+      const fatia = historico.slice(-maxJanela);
+      if (fatia.length === 0) return;
+
+      const labels = fatia.map((r) => formatarHora(r.timestamp));
+      const umidades = fatia.map((r) => r.umidade);
+      const temperaturas = fatia.map((r) => r.temperatura);
+      const luminosidades = fatia.map((r) => r.luminosidade);
+      const previsoes = fatia.map((r) => r.previsao);
+
+      atualizarSerieComEstatisticas(chartUmidade, labels, umidades, "umid", "%");
+      atualizarSerieComEstatisticas(chartTemperatura, labels, temperaturas, "temp", "°C");
+      atualizarSerieComEstatisticas(chartLuminosidade, labels, luminosidades, "luz", "%");
+
+      chartPrevisao.data.labels = labels;
+      chartPrevisao.data.datasets[0].data = suavizarSerie(temperaturas, 4);
+      chartPrevisao.data.datasets[1].data = suavizarSerie(previsoes, 4);
+      chartPrevisao.update("none");
+
+      const ultimo = fatia[fatia.length - 1];
+      document.getElementById("prev-real").textContent = `${ultimo.temperatura.toFixed(1)} °C`;
+      if (ultimo.previsao !== null && ultimo.previsao !== undefined) {
+        const diff = ultimo.previsao - ultimo.temperatura;
+        const sinal = diff >= 0 ? "+" : "";
+        document.getElementById("prev-val").textContent = `${ultimo.previsao.toFixed(1)} °C`;
+        document.getElementById("prev-diff").textContent = `${sinal}${diff.toFixed(1)} °C`;
+      } else {
+        const prog = ultimoStatus && ultimoStatus.progresso_previsao ? ` (${ultimoStatus.progresso_previsao})` : "";
+        document.getElementById("prev-val").textContent = `Coletando 1 min${prog}...`;
+        document.getElementById("prev-diff").textContent = "--";
+      }
+
+      const periodoAtual = ultimo.luminosidade >= 40.0 ? "☀️ Dia" : "🌙 Noite";
+      document.getElementById("periodo-badge").textContent = `Período: ${periodoAtual}`;
+      const semDot = document.getElementById("semaforo-dot");
+      semDot.className = ultimo.estado === 0 ? "dot" : ultimo.estado === 1 ? "dot warn" : "dot danger";
+      document.getElementById("semaforo-badge").textContent =
+        `Semáforo: ${MAPA_SEMAFORO[ultimo.estado] || ultimo.estado}`;
+    }
+
+    function atualizarStatusHardware(status) {
+      if (!status) return;
+      ultimoStatus = status;
+      const dot = document.getElementById("status-dot");
+      const txt = document.getElementById("status-text");
+      const sub = document.getElementById("substatus");
+
+      if (status.mqtt_conectado && status.conectado) {
+        dot.className = "dot";
+        txt.textContent = `MQTT + Serial (${status.mqtt_broker}:${status.mqtt_port})`;
+        sub.textContent = `Tópico MQTT: ${status.mqtt_topico} | Serial: ${status.porta} | Leituras: ${status.total_registros}`;
+      } else if (status.mqtt_conectado) {
+        dot.className = "dot";
+        txt.textContent = `MQTT Ativo (${status.mqtt_broker}:${status.mqtt_port})`;
+        sub.textContent = `Tópico MQTT: ${status.mqtt_topico} | Stream SSE em tempo real | Leituras: ${status.total_registros}`;
+      } else if (status.conectado) {
+        dot.className = "dot";
+        txt.textContent = `Serial Ativa (${status.porta})`;
+        sub.textContent = `Stream SSE ativo em tempo real | Tópico MQTT: ${status.mqtt_topico || "--"} | Leituras: ${status.total_registros}`;
+      } else {
+        dot.className = "dot warn";
+        txt.textContent = `Aguardando MQTT (${status.mqtt_broker || "broker.hivemq.com"})`;
+        sub.textContent = `Tópico MQTT: ${status.mqtt_topico || "--"} | Registros carregados: ${status.total_registros}`;
+      }
+    }
+
+    async function carregarInicial() {
+      const resp = await fetch(`/api/historico?limit=${maxJanela}`);
+      const dados = await resp.json();
+      historico = dados.registros || [];
+      atualizarStatusHardware(dados.status);
+      renderizarJanela();
+    }
+
+    function iniciarStreamSSE() {
+      const es = new EventSource("/api/stream");
+      es.onopen = () => {
+        carregarInicial();
+      };
+      es.onmessage = (ev) => {
+        const tInicioJs = performance.now();
+        const payload = JSON.parse(ev.data);
+        if (payload.status) atualizarStatusHardware(payload.status);
+        if (payload.novos && payload.novos.length > 0) {
+          for (const item of payload.novos) {
+            historico.push(item);
+          }
+          if (historico.length > 5000) {
+            historico = historico.slice(-5000);
+          }
+          renderizarJanela();
+          const tFimJs = performance.now();
+          const renderMs = (tFimJs - tInicioJs).toFixed(1);
+          const ultimo = payload.novos[payload.novos.length - 1];
+          const tsRef = ultimo.ts_captura_ms || payload.ts_envio_sse_ms;
+          const totalMs = tsRef ? Math.max(0, Date.now() - tsRef).toFixed(0) : renderMs;
+          document.getElementById("delay-badge").textContent =
+            `Delay: ${totalMs} ms (Render UI: ${renderMs} ms)`;
+        }
+      };
+    }
+
+    document.getElementById("janela-select").addEventListener("change", async (e) => {
+      maxJanela = Number(e.target.value);
+      if (historico.length < maxJanela) {
+        await carregarInicial();
+      } else {
+        renderizarJanela();
+      }
+    });
+
+    const themeCheckbox = document.getElementById("theme-checkbox");
+    const themeLabel = document.getElementById("theme-label");
+
+    function aplicarTema(claro) {
+      document.body.classList.toggle("light-theme", claro);
+      themeCheckbox.checked = claro;
+      themeLabel.textContent = claro ? "Claro" : "Escuro";
+      localStorage.setItem("tema_dashboard", claro ? "claro" : "escuro");
+
+      const corLegenda = claro ? "#334155" : "#cbd5e1";
+      const corTicks = claro ? "#475569" : "#94a3b8";
+      const corGrid = claro ? "rgba(15, 23, 42, 0.09)" : "rgba(148, 163, 184, 0.14)";
+      const corMedia = claro ? "#475569" : "#cbd5e1";
+
+      for (const c of [chartUmidade, chartTemperatura, chartLuminosidade, chartPrevisao]) {
+        c.options.plugins.legend.labels.color = corLegenda;
+        c.options.scales.x.ticks.color = corTicks;
+        c.options.scales.y.ticks.color = corTicks;
+        c.options.scales.x.grid.color = corGrid;
+        c.options.scales.y.grid.color = corGrid;
+        if (c !== chartPrevisao) {
+          c.data.datasets[1].borderColor = corMedia;
+        }
+        c.update("none");
+      }
+    }
+
+    themeCheckbox.addEventListener("change", (e) => aplicarTema(e.target.checked));
+    aplicarTema(localStorage.getItem("tema_dashboard") === "claro");
+
+    carregarInicial().then(iniciarStreamSSE);
+  </script>
+</body>
+</html>
