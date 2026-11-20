@@ -1,6 +1,6 @@
 # Estacao de Monitoramento Ambiental com ESP32
 
-Este projeto implementa uma estacao de monitoramento ambiental utilizando um microcontrolador ESP32, um sensor de temperatura e umidade DHT22, um sensor de luminosidade (LDR) e indicacao visual por meio de tres LEDs (verde, amarelo e vermelho). Os dados coletados e processados sao enviados periodicamente para a plataforma ThingSpeak via Wi-Fi.
+Este projeto implementa uma estacao de monitoramento ambiental utilizando um microcontrolador ESP32, um sensor de temperatura e umidade DHT22, um sensor de luminosidade (LDR) e indicacao visual por meio de tres LEDs (verde, amarelo e vermelho). Os dados coletados e processados sao publicados em formato JSON via protocolo MQTT (broker HiveMQ) e persistidos em CSV por um script assinante em Python executado no servidor.
 
 ## Funcionalidades
 
@@ -8,8 +8,8 @@ Este projeto implementa uma estacao de monitoramento ambiental utilizando um mic
 - Identificacao automatica de periodo (dia ou noite) com base no percentual de luminosidade (limite de 40%).
 - Sistema de semaforo (LEDs verde, amarelo e vermelho) que avalia o conforto termico e de umidade com faixas ajustadas para o dia e para a noite.
 - Previsao de temperatura para 10 minutos a frente utilizando regressao linear simples sobre uma janela deslizante das ultimas 20 leituras.
-- Gerenciamento de energia do radio Wi-Fi: a conexao e estabelecida apenas no momento do envio (a cada 30 segundos) e desligada logo em seguida.
-- Envio de dados via requisicao HTTP GET para o ThingSpeak.
+- Publicacao continua das leituras em JSON via protocolo MQTT (`broker.hivemq.com:1883`).
+- Script assinante MQTT em Python (`assinante_mqtt.py`) que permanece em execucao no servidor, valida o JSON recebido e persiste os dados em CSV (`dados_mqtt.csv`).
 
 ## Hardware e Pinagem
 
@@ -47,15 +47,30 @@ O estado do semaforo e definido pela soma de pontos de penalidade de temperatura
 
 A cada intervalo de envio (30 segundos), a temperatura atual e armazenada em um vetor historico de 20 posicoes (`N_JANELA = 20`). Quando a janela de 20 amostras esta completa, o sistema calcula uma reta de regressao linear pelo metodo dos minimos quadrados e projeta o valor para 20 passos a frente (`PASSOS_FRENTE = 20`), o que corresponde a uma previsao para os proximos 10 minutos. O valor previsto e limitado ao intervalo entre -10.0 C e 50.0 C.
 
-## Integracao com ThingSpeak
+## Integracao com MQTT e Assinante Python (`assinante_mqtt.py`)
 
-Os dados sao enviados a cada 30 segundos para os seguintes campos do canal ThingSpeak:
+O ESP32 publica as medicoes em formato JSON no topico MQTT configurado em `secrets.h`:
 
-- `field1`: Temperatura atual (C)
-- `field2`: Umidade relativa (%)
-- `field3`: Luminosidade (%)
-- `field4`: Estado do semaforo (0 = Verde, 1 = Amarelo, 2 = Vermelho)
-- `field5`: Temperatura prevista para 10 minutos (C) - enviado apenas apos coletar as 20 amostras iniciais
+```json
+{"temperatura":24.5,"umidade":52.0,"luminosidade":75.0,"estado":0,"previsao":24.8}
+```
+
+- `temperatura`: Temperatura atual (C)
+- `umidade`: Umidade relativa (%)
+- `luminosidade`: Luminosidade (%)
+- `estado`: Estado do semaforo (0 = Verde, 1 = Amarelo, 2 = Vermelho)
+- `previsao`: Temperatura prevista para 10 minutos (C) ou `null` enquanto coleta os pontos iniciais
+
+No servidor, o script `assinante_mqtt.py` permanece em execucao ouvindo o topico MQTT, validando o JSON e gravando cada leitura no arquivo `dados_mqtt.csv` com as colunas:
+`timestamp,temperatura,umidade,luminosidade,estado_semaforo,status_semaforo,periodo,previsao_10min`.
+
+Para executar o assinante no servidor:
+
+```bash
+.venv/bin/python assinante_mqtt.py
+```
+
+Opcionalmente, os parametros podem ser sobrescritos via linha de comando (`--broker`, `--port`, `--topic`, `--csv`) ou variaveis de ambiente (`MQTT_BROKER`, `MQTT_PORT`, `MQTT_TOPIC`, `CSV_SAIDA`).
 
 ## Configuracao e Compilacao
 
@@ -72,7 +87,6 @@ Crie um arquivo chamado `secrets.h` na raiz do projeto (este arquivo e ignorado 
 
 #define WIFI_SSID "SEU_WIFI_SSID"
 #define WIFI_SENHA "SUA_WIFI_SENHA"
-#define TS_CHAVE "SUA_WRITE_API_KEY_THINGSPEAK"
 
 #define MQTT_BROKER "broker.hivemq.com"
 #define MQTT_PORT   1883
@@ -104,11 +118,10 @@ O arquivo `app.py` disponibiliza uma aplicacao web interativa em Python para col
 ### Funcionalidades do Dashboard
 
 1. Carregamento de dados reais:
-   - Coleta direta em tempo real pela porta USB Serial (`/dev/ttyUSB0`, 115200 bps) a cada 2 segundos com persistencia local automatica (`dados_esp32_serial.csv`).
-   - Consulta em tempo real via API REST do ThingSpeak (informando o `Channel ID` e, opcionalmente, a `Read API Key`).
-   - Upload de arquivos locais exportados do ThingSpeak (`feeds.csv` ou `feeds.json`).
+   - Coleta em tempo real via MQTT (`broker.hivemq.com:1883`) e porta USB Serial (`/dev/ttyUSB0`, 115200 bps) com persistencia local automatica.
+   - Leitura dos arquivos CSV gerados localmente (`dados_mqtt.csv` ou `dados_esp32_serial.csv`).
 2. Exploracao e preparacao dos dados (Pandas):
-   - Padronizacao das colunas (`field1` a `field5` para nomes descritivos).
+   - Padronizacao dos campos recebidos via MQTT (`temperatura`, `umidade`, `luminosidade`, `estado_semaforo` e `previsao_10min`).
    - Conversao de timestamps para o fuso horario local (`America/Sao_Paulo`).
    - Tratamento de valores ausentes (`NaN`), remocao de duplicatas e filtragem de leituras fora dos limites fisicos dos sensores.
    - Classificacao de periodo (`Dia` ou `Noite`) e estado de conforto (`Ideal (Verde)`, `Atencao (Amarelo)`, `Critico (Vermelho)`).
@@ -153,10 +166,14 @@ streamlit run app.py
    - Conecte o ESP32 na energia (USB do notebook, carregador ou powerbank).
    - Se estiver no USB do notebook, ele tambem serve de plano B automatico caso o Wi-Fi da placa falhe.
 
-3. **Iniciar o Dashboard Web em Tempo Real:**
+3. **Iniciar o Assinante MQTT (CSV) e o Dashboard Web em Tempo Real:**
    No terminal, dentro da pasta do projeto:
    ```bash
-   arduino-cli compile && arduino-cli upload 
+   arduino-cli compile && arduino-cli upload
+   .venv/bin/python assinante_mqtt.py
+   ```
+   Em outro terminal (opcional, para visualizar em tempo real no navegador):
+   ```bash
    .venv/bin/python servidor_tempo_real.py
    ```
    Abra no navegador: **http://localhost:8000**  

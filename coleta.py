@@ -11,7 +11,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import requests
 import serial
 import serial.tools.list_ports
 import streamlit as st
@@ -68,48 +67,12 @@ _RE_LEITURA = re.compile(
 )
 _RE_PREVISAO = re.compile(r"Previsao 10 min:\s*([-\d.]+)\s*C")
 _RE_COLETANDO = re.compile(r"Previsao:\s*coletando\s*(\d+)/(\d+)\s*pontos")
-_RE_THINGSPEAK = re.compile(r"ThingSpeak:\s*status\s*(\d+),\s*entrada\s*(\S+)")
 _RE_MQTT_SERIAL = re.compile(r"MQTT\s*\[([^\]]+)\]:\s*(\{.*\})")
 
 
 # ==============================================================================
 # 1. CARREGAMENTO DOS DADOS DA ESTACAO E REGRAS DO FIRMWARE
 # ==============================================================================
-
-@st.cache_data(ttl=25, show_spinner=False)
-def carregar_dados_thingspeak(
-    channel_id: str,
-    read_api_key: str = "",
-    results: int = 800,
-) -> Tuple[pd.DataFrame, Dict]:
-    """Busca as medicoes mais recentes diretamente da API REST do ThingSpeak."""
-    url = f"https://api.thingspeak.com/channels/{channel_id.strip()}/feeds.json"
-    params = {"results": results}
-    if read_api_key and read_api_key.strip():
-        params["api_key"] = read_api_key.strip()
-
-    response = requests.get(url, params=params, timeout=15)
-    response.raise_for_status()
-    payload = response.json()
-
-    channel_info = payload.get("channel", {})
-    feeds = payload.get("feeds", [])
-    df_bruto = pd.DataFrame(feeds)
-    return df_bruto, channel_info
-
-
-def carregar_dados_arquivo(arquivo_upload) -> Tuple[pd.DataFrame, Dict]:
-    """Carrega dados exportados do ThingSpeak ou salvos localmente (CSV ou JSON)."""
-    nome = arquivo_upload.name.lower()
-    if nome.endswith(".json"):
-        conteudo = json.load(arquivo_upload)
-        if isinstance(conteudo, dict) and "feeds" in conteudo:
-            return pd.DataFrame(conteudo["feeds"]), conteudo.get("channel", {})
-        return pd.DataFrame(conteudo), {"name": arquivo_upload.name}
-
-    df_bruto = pd.read_csv(arquivo_upload)
-    return df_bruto, {"name": arquivo_upload.name}
-
 
 def _prever_temperatura_esp32(y: np.ndarray, passos: int = PASSOS_FRENTE) -> float:
     """Replica exatamente a regressao linear embarcada no ESP32 (estacao.ino)."""
@@ -302,7 +265,6 @@ class ColetorSerialESP32:
         self.ultima_linha: str = ""
         self.ultima_previsao: float = np.nan
         self.progresso_previsao: str = "0/20"
-        self.ultimo_status_ts: str = ""
         self._janela_30s: List[float] = []
         self._ultimo_ponto_30s: float = 0.0
         self._ultimo_registro_ts: float = 0.0
@@ -380,18 +342,6 @@ class ColetorSerialESP32:
             self._mqtt_sock = None
         self.conectado = False
         self.mqtt_conectado = False
-
-    def limpar_historico(self) -> None:
-        with self._lock:
-            self.registros.clear()
-            self._janela_30s.clear()
-            self._ultimo_ponto_30s = 0.0
-            self.ultima_previsao = np.nan
-            if ARQUIVO_HISTORICO_SERIAL.exists():
-                try:
-                    ARQUIVO_HISTORICO_SERIAL.unlink()
-                except OSError:
-                    pass
 
     def _registrar_medicao(
         self,
@@ -604,11 +554,6 @@ class ColetorSerialESP32:
                         self.progresso_previsao = f"{m_col.group(1)}/{m_col.group(2)}"
                         continue
 
-                    m_ts = _RE_THINGSPEAK.search(linha)
-                    if m_ts:
-                        self.ultimo_status_ts = f"HTTP {m_ts.group(1)} (entrada #{m_ts.group(2)})"
-                        continue
-
                     m_leit = _RE_LEITURA.search(linha)
                     if m_leit:
                         luz = round(float(m_leit.group(1)), 1)
@@ -652,7 +597,6 @@ class ColetorSerialESP32:
                 "ultimo_erro_mqtt": self.ultimo_erro_mqtt,
                 "ultima_linha": self.ultima_linha,
                 "progresso_previsao": self.progresso_previsao,
-                "ultimo_status_ts": self.ultimo_status_ts,
             }
         return pd.DataFrame(fatia), info
 

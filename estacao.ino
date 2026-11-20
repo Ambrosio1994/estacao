@@ -1,6 +1,5 @@
 #include <DHT.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 #include "secrets.h"   
 
 #define DHTTYPE DHT22
@@ -11,7 +10,7 @@
 #define LED_VERMELHO 19
 
 #define LIMITE_DIA 40        // luz (%) a partir da qual é dia
-#define INTERVALO_ENVIO 30000UL   // ms entre envios (e entre pontos do histórico)
+#define INTERVALO_ENVIO 30000UL   // ms entre pontos do histórico da regressão linear
 #define INTERVALO_LDR   6000UL    // ms entre leituras do LDR no GPIO 4 (ADC2 exige Wi-Fi desligado)
 #define N_JANELA 20        // máximo de pontos usados na regressão
 #define MIN_PONTOS_PREV 2  // 1 min (2 leituras de 30 s) para iniciar a regressão
@@ -208,30 +207,6 @@ void enviar_mqtt(float temp, float umid, float luz, int estado, float prev) {
   }
 }
 
-void enviar_thingspeak(float temp, float umid, float luz, int estado, float prev) {
-  if (!wifi_ok) return;
-
-  char url[220];
-  int n = snprintf(url, sizeof(url),
-    "http://api.thingspeak.com/update?api_key=%s&field1=%.1f&field2=%.1f&field3=%.1f&field4=%d",
-    TS_CHAVE, temp, umid, luz, estado);
-
-  if (!isnan(prev) && n > 0 && n < (int)sizeof(url)) {
-    snprintf(url + n, sizeof(url) - n, "&field5=%.1f", prev);
-  }
-
-  HTTPClient http;
-  http.setTimeout(5000);
-  http.begin(url);
-  int status = http.GET();
-  if (status > 0) {
-    Serial.printf("ThingSpeak: status %d, entrada %s\n", status, http.getString().c_str());
-  } else {
-    Serial.println("Falha no envio");
-  }
-  http.end();
-}
-
 int ler_ldr_sem_wifi() {
   // GPIO 4 usa ADC2, que conflita com o radio Wi-Fi ativo no ESP32
   mqtt_client.stop();
@@ -318,7 +293,4 @@ void loop() {
   Serial.println(F("°C"));
 
   enviar_mqtt(t, h, luz, estado, prev);
-  if (ciclo_30s) {
-    enviar_thingspeak(t, h, luz, estado, prev);
-  }
 }
